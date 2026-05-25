@@ -1,244 +1,315 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getUserProjects, createProject, deleteProject, onProjectUpdate, getProject } from '../config/firebaseService'
-import ProjectView from '../components/ProjectView'
-import ProjectList from '../components/ProjectList'
+import { useNavigate } from 'react-router-dom'
+import { signOut } from 'firebase/auth'
+import { auth } from '../config/firebase'
+import { getUserProjects, createProject } from '../config/firebaseService'
+import GastosTab from '../components/GastosTab'
+import GraficosTab from '../components/GraficosTab'
+import ResumenTab from '../components/ResumenTab'
+import Toast from '../components/Toast'
+import NewProjectModal from '../components/NewProjectModal'
 
 const G = '#0D6E56'
 const GL = '#E1F5EE'
+const R = '#A32D2D'
+const A = '#BA7517'
 
-export default function Dashboard({ user, profile, onLogout, say }) {
+const Btn = ({ children, onClick, variant = 'primary', disabled, style }) => {
+  const v = {
+    primary: { background: G, color: '#fff', border: 'none' },
+    outline: { background: 'transparent', color: G, border: `0.5px solid ${G}` },
+    ghost: { background: 'transparent', color: '#888', border: 'none' },
+    danger: { background: '#FCEBEB', color: R, border: `0.5px solid ${R}` },
+  }
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        padding: 12,
+        borderRadius: 10,
+        fontSize: 14,
+        fontWeight: 500,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        ...v[variant],
+        ...style
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+const Card = ({ children, style }) => (
+  <div style={{
+    background: '#fff',
+    borderRadius: 12,
+    border: '0.5px solid #e8e8e8',
+    padding: '1rem',
+    marginBottom: '.75rem',
+    ...style
+  }}>
+    {children}
+  </div>
+)
+
+const Empty = ({ icon, text }) => (
+  <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#888', fontSize: 14 }}>
+    <i className={`ti ${icon}`} style={{ fontSize: 36, display: 'block', marginBottom: 8 }} />
+    {text}
+  </div>
+)
+
+export default function Dashboard({ user }) {
+  const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
+  const [tab, setTab] = useState('gastos')
   const [loading, setLoading] = useState(true)
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [projectName, setProjectName] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [toast, setToast] = useState('')
+  const [showNewProject, setShowNewProject] = useState(false)
 
-  // Cargar proyectos del usuario
   useEffect(() => {
-    const loadProjects = async () => {
-      setLoading(true)
-      const userProjects = await getUserProjects(user.uid)
-      setProjects(userProjects)
-      setLoading(false)
-    }
     loadProjects()
-  }, [user.uid])
+  }, [])
 
-  // Suscribirse a actualizaciones en tiempo real del proyecto seleccionado
-  useEffect(() => {
-    if (!selectedProject) return
-    const unsubscribe = onProjectUpdate(selectedProject.id, (updatedProject) => {
-      setSelectedProject(updatedProject)
-      setProjects(p => p.map(proj => proj.id === updatedProject.id ? updatedProject : proj))
-    })
-    return () => unsubscribe()
-  }, [selectedProject?.id])
-
-  const handleCreateProject = async (e) => {
-    e.preventDefault()
-    if (!projectName.trim()) {
-      say('⚠ Ingresa un nombre para el proyecto')
-      return
+  const loadProjects = async () => {
+    setLoading(true)
+    const userProjects = await getUserProjects(user.uid)
+    setProjects(userProjects)
+    if (userProjects.length > 0) {
+      setSelectedProject(userProjects[0])
     }
+    setLoading(false)
+  }
 
-    setCreating(true)
-    const { ok, projectId, error } = await createProject(user.uid, projectName.trim())
-    setCreating(false)
-
-    if (ok) {
-      const newProject = await getProject(projectId)
-      setProjects([...projects, newProject])
-      setProjectName('')
-      setShowCreateForm(false)
-      say(`✓ Proyecto "${projectName}" creado`)
-    } else {
-      say('⚠ Error: ' + error)
+  const handleLogout = async () => {
+    try {
+      await signOut(auth)
+      navigate('/login')
+    } catch (error) {
+      setToast('⚠ Error al cerrar sesión')
     }
   }
 
-  const handleDeleteProject = async (projectId) => {
-    if (!window.confirm('¿Estás seguro? Esta acción no se puede deshacer.')) return
-
-    const { ok } = await deleteProject(projectId, user.uid)
+  const handleCreateProject = async (projectName) => {
+    const { ok, projectId, error } = await createProject(user.uid, projectName, [])
     if (ok) {
-      setProjects(projects.filter(p => p.id !== projectId))
-      if (selectedProject?.id === projectId) setSelectedProject(null)
-      say('✓ Proyecto eliminado')
+      setShowNewProject(false)
+      setToast('✓ Proyecto creado')
+      await loadProjects()
     } else {
-      say('⚠ Error al eliminar')
+      setToast('⚠ Error: ' + error)
     }
   }
 
-  // Si hay proyecto seleccionado, mostrar vista del proyecto
-  if (selectedProject) {
+  if (loading) {
     return (
-      <ProjectView
-        project={selectedProject}
-        user={user}
-        profile={profile}
-        onBack={() => setSelectedProject(null)}
-        onDelete={() => handleDeleteProject(selectedProject.id)}
-        onLogout={onLogout}
-        say={say}
-      />
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: '#f5f5f3'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 50,
+            height: 50,
+            borderRadius: '50%',
+            border: '4px solid #eee',
+            borderTop: `4px solid ${G}`,
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px'
+          }} />
+          <p style={{ color: '#888' }}>Cargando proyectos...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+        </div>
+      </div>
     )
   }
 
-  // Mostrar lista de proyectos
+  if (!selectedProject) {
+    return (
+      <div style={{ fontFamily: "'DM Sans',sans-serif", maxWidth: 430, margin: '0 auto', background: '#f5f5f3', minHeight: '100vh' }}>
+        <Toast msg={toast} onDone={() => setToast('')} />
+        <div style={{ padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h1 style={{ fontSize: 20, fontWeight: 600, color: '#1a1a1a' }}>Mis Proyectos</h1>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: '8px 12px',
+                border: 'none',
+                borderRadius: 8,
+                background: R,
+                color: '#fff',
+                fontSize: 12,
+                cursor: 'pointer'
+              }}
+            >
+              <i className="ti ti-logout" style={{ marginRight: 4 }} />
+              Salir
+            </button>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <Btn onClick={() => setShowNewProject(true)}>
+              <i className="ti ti-folder-plus" style={{ marginRight: 6 }} />
+              Crear nuevo proyecto
+            </Btn>
+          </div>
+
+          {projects.length > 0 ? (
+            <div>
+              {projects.map((proj) => (
+                <Card key={proj.id} style={{ cursor: 'pointer', borderLeft: `4px solid ${G}` }}
+                  onClick={() => setSelectedProject(proj)}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ fontSize: 24 }}>📊</div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontWeight: 600, color: '#1a1a1a', marginBottom: 4 }}>{proj.name}</p>
+                      <p style={{ fontSize: 12, color: '#888' }}
+                      >
+                        {proj.members?.length || 1} miembro{(proj.members?.length || 1) > 1 ? 's' : ''} · {proj.expenses?.length || 0} gasto{(proj.expenses?.length || 0) !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <i className="ti ti-chevron-right" style={{ color: '#aaa' }} />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Empty icon="ti-folder-off" text="No tienes proyectos. Crea uno para comenzar" />
+          )}
+        </div>
+
+        <NewProjectModal
+          show={showNewProject}
+          onClose={() => setShowNewProject(false)}
+          onCreate={handleCreateProject}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div style={{ fontFamily: "'DM Sans',sans-serif", maxWidth: 430, margin: '0 auto', background: '#f5f5f3', minHeight: '100vh' }}>
+      <Toast msg={toast} onDone={() => setToast('')} />
+
       {/* Header */}
-      <div style={{
-        background: G,
-        padding: '1.5rem',
-        color: '#fff',
-        borderBottom: `0.5px solid ${G}30`
-      }}>
+      <div style={{ background: G, padding: '1rem', color: '#fff', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>
-              <i className="ti ti-wallet" style={{ marginRight: 8 }} />Mis Proyectos
-            </h1>
-            <p style={{ fontSize: 12, opacity: 0.85 }}>👋 Hola, {profile?.name || 'Usuario'}</p>
+            <button
+              onClick={() => setSelectedProject(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 24,
+                padding: 0,
+                marginBottom: 4
+              }}
+            >
+              <i className="ti ti-arrow-left" />
+            </button>
+            <p style={{ fontSize: 17, fontWeight: 600 }}>
+              <i className="ti ti-wallet" style={{ marginRight: 7 }} />{selectedProject.name}
+            </p>
+            <p style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+              {selectedProject.members?.length || 1} miembros · {selectedProject.expenses?.length || 0} gastos
+            </p>
           </div>
           <button
-            onClick={onLogout}
+            onClick={handleLogout}
             style={{
+              background: 'rgba(255,255,255,.2)',
+              border: 'none',
+              borderRadius: 7,
               padding: '8px 12px',
-              border: '0.5px solid rgba(255,255,255,.3)',
-              borderRadius: 8,
-              background: 'rgba(255,255,255,.1)',
               color: '#fff',
               fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6
+              cursor: 'pointer'
             }}
           >
-            <i className="ti ti-logout" />Salir
+            <i className="ti ti-logout" />
           </button>
         </div>
       </div>
 
-      {/* Contenido */}
-      <div style={{ padding: '1.5rem' }}>
-        {/* Crear proyecto */}
-        {!showCreateForm ? (
+      {/* Nav Tabs */}
+      <div style={{
+        display: 'flex',
+        background: '#fff',
+        borderBottom: '0.5px solid #eee',
+        position: 'sticky',
+        top: 100,
+        zIndex: 9
+      }}>
+        {[['gastos', 'ti-list', 'Gastos'], ['graficos', 'ti-chart-pie', 'Gráficos'], ['resumen', 'ti-scale', 'Resumen']].map(([k, ic, lb]) => (
           <button
-            onClick={() => setShowCreateForm(true)}
+            key={k}
+            onClick={() => setTab(k)}
             style={{
-              width: '100%',
-              padding: 12,
-              borderRadius: 10,
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: 'pointer',
-              background: G,
-              color: '#fff',
+              flex: 1,
+              padding: '8px 0',
               border: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              marginBottom: 16
+              borderBottom: `2px solid ${tab === k ? G : 'transparent'}`,
+              background: 'transparent',
+              color: tab === k ? G : '#888',
+              fontSize: 11,
+              cursor: 'pointer',
+              fontWeight: tab === k ? 500 : 400
             }}
           >
-            <i className="ti ti-folder-plus" />Crear nuevo proyecto
+            <i className={`ti ${ic}`} style={{ display: 'block', fontSize: 17 }} />{lb}
           </button>
-        ) : (
-          <div style={{
-            background: '#fff',
-            borderRadius: 12,
-            border: '0.5px solid #e8e8e8',
-            padding: '1.5rem',
-            marginBottom: 16
-          }}>
-            <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>
-              <i className="ti ti-folder-plus" style={{ marginRight: 6, color: G }} />
-              Crear proyecto
-            </h3>
-            <form onSubmit={handleCreateProject}>
-              <input
-                type="text"
-                value={projectName}
-                onChange={e => setProjectName(e.target.value)}
-                placeholder="Ej: Casa 2026, Viaje a Lima"
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '0.5px solid #ddd',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  marginBottom: 10,
-                  boxSizing: 'border-box'
-                }}
-              />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  style={{
-                    flex: 1,
-                    padding: 10,
-                    background: G,
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    cursor: creating ? 'not-allowed' : 'pointer',
-                    opacity: creating ? 0.5 : 1
-                  }}
-                >
-                  {creating ? 'Creando...' : 'Crear'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  style={{
-                    flex: 1,
-                    padding: 10,
-                    background: '#f5f5f3',
-                    color: '#888',
-                    border: '0.5px solid #ddd',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Lista de proyectos */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
-            <p>Cargando proyectos...</p>
-          </div>
-        ) : projects.length > 0 ? (
-          <ProjectList
-            projects={projects}
-            onSelectProject={setSelectedProject}
-            onDeleteProject={handleDeleteProject}
-          />
-        ) : (
-          <div style={{
-            textAlign: 'center',
-            padding: '2rem',
-            background: '#fff',
-            borderRadius: 12,
-            border: '0.5px solid #e8e8e8'
-          }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📁</div>
-            <p style={{ color: '#888', fontSize: 14 }}>No tienes proyectos aún</p>
-            <p style={{ color: '#888', fontSize: 12, marginTop: 4 }}>Crea uno para comenzar a registrar gastos</p>
-          </div>
-        )}
+        ))}
       </div>
+
+      {/* Content */}
+      <div style={{ padding: '0.85rem' }}>
+        {tab === 'gastos' && <GastosTab project={selectedProject} onUpdate={loadProjects} toast={setToast} />}
+        {tab === 'graficos' && <GraficosTab project={selectedProject} />}
+        {tab === 'resumen' && <ResumenTab project={selectedProject} />}
+      </div>
+
+      {/* New Project Button */}
+      <div style={{ position: 'fixed', bottom: 16, right: 16 }}>
+        <button
+          onClick={() => setShowNewProject(true)}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: G,
+            color: '#fff',
+            border: 'none',
+            fontSize: 24,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(13, 110, 86, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <i className="ti ti-plus" />
+        </button>
+      </div>
+
+      <NewProjectModal
+        show={showNewProject}
+        onClose={() => setShowNewProject(false)}
+        onCreate={handleCreateProject}
+      />
     </div>
   )
 }
